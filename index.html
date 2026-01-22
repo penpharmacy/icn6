@@ -76,8 +76,8 @@
     </div>
 
     <div class="row g-2 mb-3">
-        <div class="col-md-6"><div class="card p-2"><h6 class="chart-label text-success">Matrix: Compliance Rate แยกตามแผนกและ Moment (Grouped Bar)</h6><div class="chart-container" style="height:300px;"><canvas id="matrixDeptChart"></canvas></div></div></div>
-        <div class="col-md-6"><div class="card p-2"><h6 class="chart-label text-info">Matrix: Compliance Rate แยกตามวิชาชีพและ Moment (Grouped Bar)</h6><div class="chart-container" style="height:300px;"><canvas id="matrixRoleChart"></canvas></div></div></div>
+        <div class="col-md-6"><div class="card p-2"><h6 class="chart-label text-success">Matrix: Compliance Rate (%) แยกตามแผนกและ Moment</h6><div class="chart-container" style="height:250px;"><canvas id="matrixDeptChart"></canvas></div></div></div>
+        <div class="col-md-6"><div class="card p-2"><h6 class="chart-label text-info">Matrix: Compliance Rate (%) แยกตามวิชาชีพและ Moment</h6><div class="chart-container" style="height:250px;"><canvas id="matrixRoleChart"></canvas></div></div></div>
     </div>
 
     <div class="text-end mb-4 no-print">
@@ -203,6 +203,7 @@
 
     function resetDashboard() {
         ['hw_val', 'hr_val', 'comp_val', 'equip_val'].forEach(id => document.getElementById(id).innerText = '0%');
+        ['hw_frac', 'hr_frac', 'comp_frac', 'equip_frac'].forEach(id => document.getElementById(id).innerText = '(0/0)');
         ['matrixTableBody', 'matrixRoleTableBody', 'momentTableBody', 'deptTableBody', 'roleTableBody', 'equipTableBody', 'equipSummaryTableBody'].forEach(id => {
             document.getElementById(id).innerHTML = '';
         });
@@ -230,9 +231,13 @@
             if(d.equips) d.equips.forEach(v => eqTotal += v);
         });
         document.getElementById('hw_val').innerText = ((hw / (n * 5)) * 100).toFixed(1) + `%`;
+        document.getElementById('hw_frac').innerText = `(${hw}/${n * 5})`;
         document.getElementById('hr_val').innerText = ((hr / (n * 5)) * 100).toFixed(1) + `%`;
+        document.getElementById('hr_frac').innerText = `(${hr}/${n * 5})`;
         document.getElementById('comp_val').innerText = (((hw + hr) / (n * 5)) * 100).toFixed(1) + `%`;
+        document.getElementById('comp_frac').innerText = `(${hw + hr}/${n * 5})`;
         document.getElementById('equip_val').innerText = ((eqTotal / (n * 7)) * 100).toFixed(1) + `%`;
+        document.getElementById('equip_frac').innerText = `(${eqTotal}/${n * 7})`;
 
         drawPie(hw, hr, none, glove);
         drawMomentBar(mStats, n);
@@ -244,9 +249,9 @@
         renderMatrixTable(data); 
         renderMatrixRoleTable(data);
         
-        // เรียกใช้ฟังก์ชันกราฟ Grouped Bar
-        drawMatrixGroupChart(data, 'dept', 'matrixDeptChart');
-        drawMatrixGroupChart(data, 'role', 'matrixRoleChart');
+        // สร้างกราฟ Matrix ใหม่
+        drawMatrixGroupChart(data, 'dept', 'matrixDeptChart', 'แผนก');
+        drawMatrixGroupChart(data, 'role', 'matrixRoleChart', 'วิชาชีพ');
     }
 
     function drawPie(hw, hr, none, glove) { if(charts.pie) charts.pie.destroy(); charts.pie = new Chart(document.getElementById('pieChart'), { type: 'doughnut', data: { labels: ['HW', 'HR', 'ไม่ล้างมือ', 'สวมถุงมือ'], datasets: [{ data: [hw, hr, none, glove], backgroundColor: ['#2ecc71', '#3498db', '#e74c3c', '#f1c40f'] }] }, options: { maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 9 } } } } } }); }
@@ -255,23 +260,22 @@
     function drawTrend(data) { if(charts.trend) charts.trend.destroy(); const monthlyData = {}; database.forEach(d => { if(!d.obsDate) return; const month = d.obsDate.substring(0, 7); if(!monthlyData[month]) monthlyData[month] = { pass: 0, total: 0 }; d.m.forEach(v => { monthlyData[month].total++; if(v === 'HW' || v === 'HR') monthlyData[month].pass++; }); }); const labels = Object.keys(monthlyData).sort(); charts.trend = new Chart(document.getElementById('trendChart'), { type: 'line', data: { labels: labels, datasets: [{ label: 'Trend (%)', data: labels.map(l => ((monthlyData[l].pass / monthlyData[l].total) * 100).toFixed(1)), borderColor: '#1d976c', fill: true, backgroundColor: 'rgba(29, 151, 108, 0.1)', tension: 0.3 }] }, options: { maintainAspectRatio: false, scales: { y: { beginAtZero: true, max: 100 } } } }); }
     function drawEquipDeptChart(data) { if(charts.equip) charts.equip.destroy(); const depts = [...new Set(data.map(d => d.dept))]; const scores = depts.map(dn => { let f = data.filter(d => d.dept === dn); let totalPos = f.length * 7; let actual = f.reduce((acc, curr) => acc + curr.equips.reduce((a, b) => a + b, 0), 0); return ((actual / totalPos) * 100).toFixed(1); }); charts.equip = new Chart(document.getElementById('equipDeptChart'), { type: 'bar', data: { labels: depts, datasets: [{ label: 'อุปกรณ์ (%)', data: scores, backgroundColor: '#f39c12' }] }, options: { maintainAspectRatio: false, scales: { y: { beginAtZero: true, max: 100 } } } }); }
 
-    // ฟังก์ชันสร้างกราฟ Matrix แบบ Grouped Bar Chart (Compliance Rate % HW+HR)
-    function drawMatrixGroupChart(data, field, canvasId) {
+    // ฟังก์ชันสร้างกราฟ Matrix Compliance 5 Moment
+    function drawMatrixGroupChart(data, field, canvasId, labelPrefix) {
         if(charts[canvasId]) charts[canvasId].destroy();
         const groups = [...new Set(data.map(d => d[field]))].sort();
         const moments = ["M1", "M2", "M3", "M4", "M5"];
         const colors = ['#1abc9c', '#3498db', '#9b59b6', '#f1c40f', '#e67e22'];
         
-        // datasets คือ Moments (แต่ละกลุ่มแผนกจะมี 5 แท่ง)
-        const datasets = moments.map((m, mIdx) => {
+        const datasets = moments.map((m, i) => {
             return {
                 label: m,
-                backgroundColor: colors[mIdx],
                 data: groups.map(g => {
                     let f = data.filter(d => d[field] === g);
-                    let pass = f.filter(d => d.m && (d.m[mIdx] === 'HW' || d.m[mIdx] === 'HR')).length;
+                    let pass = f.filter(d => d.m && (d.m[i] === 'HW' || d.m[i] === 'HR')).length;
                     return ((pass / f.length) * 100).toFixed(1);
-                })
+                }),
+                backgroundColor: colors[i]
             };
         });
 
@@ -279,14 +283,11 @@
             type: 'bar',
             data: { labels: groups, datasets: datasets },
             options: {
-                responsive: true,
                 maintainAspectRatio: false,
-                scales: {
-                    y: { beginAtZero: true, max: 100, title: { display: true, text: 'Compliance (%)' } }
-                },
-                plugins: {
-                    legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 10 } } },
-                    tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.raw}%` } }
+                plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: { size: 9 } } } },
+                scales: { 
+                    y: { beginAtZero: true, max: 100, title: { display: true, text: '% Compliance', font: { size: 10 } } },
+                    x: { ticks: { font: { size: 9 } } }
                 }
             }
         });
@@ -296,9 +297,16 @@
         const body = document.getElementById('matrixTableBody');
         body.innerHTML = '';
         const depts = [...new Set(data.map(d => d.dept))].sort();
-        const behaviors = [{ key: 'HW', label: 'HW', colorClass: 'text-primary' }, { key: 'HR', label: 'HR', colorClass: 'text-info' }, { key: 'None', label: 'ไม่ล้าง', colorClass: 'text-danger' }, { key: 'Glove', label: 'สวมถุงมือ', colorClass: 'text-warning' }];
+        const behaviors = [
+            { key: 'HW', label: 'HW', colorClass: 'text-primary' },
+            { key: 'HR', label: 'HR', colorClass: 'text-info' },
+            { key: 'None', label: 'ไม่ล้าง', colorClass: 'text-danger' },
+            { key: 'Glove', label: 'สวมถุงมือ', colorClass: 'text-warning' }
+        ];
+
         depts.forEach(dn => {
-            const f = data.filter(d => d.dept === dn); const total = f.length;
+            const f = data.filter(d => d.dept === dn);
+            const total = f.length;
             behaviors.forEach((beh, idx) => {
                 let row = `<tr>`;
                 if (idx === 0) row += `<td rowspan="4" class="bg-dept align-middle small">${dn}</td>`;
@@ -306,7 +314,7 @@
                 for (let mIdx = 0; mIdx < 5; mIdx++) {
                     let count = f.filter(d => d.m && d.m[mIdx] === beh.key).length;
                     let pctVal = (count / total) * 100;
-                    let cellContent = pctVal > 0 ? `<span style="${pctVal === 100 ? 'color: #198754; font-weight: bold;' : ''}">${pctVal.toFixed(1)}%</span><br><span class="text-muted" style="font-size:0.65rem">(${count})</span>` : "";
+                    let cellContent = pctVal > 0 ? `<span style="${pctVal === 100 ? 'color: #198754; font-weight: bold;' : ''}">${pctVal.toFixed(1)}%</span><br><span class="text-muted" style="font-size:0.65rem">(${count}/${total})</span>` : "";
                     row += `<td>${cellContent}</td>`;
                 }
                 body.innerHTML += row + `</tr>`;
@@ -318,9 +326,16 @@
         const body = document.getElementById('matrixRoleTableBody');
         body.innerHTML = '';
         const roles = [...new Set(data.map(d => d.role))].sort();
-        const behaviors = [{ key: 'HW', label: 'HW', colorClass: 'text-primary' }, { key: 'HR', label: 'HR', colorClass: 'text-info' }, { key: 'None', label: 'ไม่ล้าง', colorClass: 'text-danger' }, { key: 'Glove', label: 'สวมถุงมือ', colorClass: 'text-warning' }];
+        const behaviors = [
+            { key: 'HW', label: 'HW', colorClass: 'text-primary' },
+            { key: 'HR', label: 'HR', colorClass: 'text-info' },
+            { key: 'None', label: 'ไม่ล้าง', colorClass: 'text-danger' },
+            { key: 'Glove', label: 'สวมถุงมือ', colorClass: 'text-warning' }
+        ];
+
         roles.forEach(rn => {
-            const f = data.filter(d => d.role === rn); const total = f.length;
+            const f = data.filter(d => d.role === rn);
+            const total = f.length;
             behaviors.forEach((beh, idx) => {
                 let row = `<tr>`;
                 if (idx === 0) row += `<td rowspan="4" class="bg-role align-middle small">${rn}</td>`;
@@ -328,7 +343,7 @@
                 for (let mIdx = 0; mIdx < 5; mIdx++) {
                     let count = f.filter(d => d.m && d.m[mIdx] === beh.key).length;
                     let pctVal = (count / total) * 100;
-                    let cellContent = pctVal > 0 ? `<span style="${pctVal === 100 ? 'color: #198754; font-weight: bold;' : ''}">${pctVal.toFixed(1)}%</span><br><span class="text-muted" style="font-size:0.65rem">(${count})</span>` : "";
+                    let cellContent = pctVal > 0 ? `<span style="${pctVal === 100 ? 'color: #198754; font-weight: bold;' : ''}">${pctVal.toFixed(1)}%</span><br><span class="text-muted" style="font-size:0.65rem">(${count}/${total})</span>` : "";
                     row += `<td>${cellContent}</td>`;
                 }
                 body.innerHTML += row + `</tr>`;
@@ -358,7 +373,7 @@
             let s = {HW:0, HR:0, None:0, Glove:0};
             f.forEach(d => { if(d.m) d.m.forEach(v => s[v]++); });
             const total = f.length * 5;
-            const fmt = (c) => { let pct = ((c/total)*100).toFixed(1); return `<span class="${getPercentColor(pct)}">${pct}%</span> <span class="text-muted">(${c})</span>`; };
+            const fmt = (c) => { let pct = ((c/total)*100).toFixed(1); return `<span class="${getPercentColor(pct)}">${pct}%</span> <span class="text-muted">(${c}/${total})</span>`; };
             body.innerHTML += `<tr><td>${k}</td><td>${fmt(s.HW)}</td><td>${fmt(s.HR)}</td><td>${fmt(s.None)}</td><td>${fmt(s.Glove)}</td></tr>`;
         });
     }
@@ -374,11 +389,12 @@
             for(let i=0; i<7; i++) {
                 let count = f.filter(d => d.equips && d.equips[i] === 1).length;
                 let pct = ((count / f.length) * 100).toFixed(0);
-                row += `<td><span class="${getPercentColor(pct)}">${pct}%</span></td>`;
+                row += `<td><span class="${getPercentColor(pct)}">${pct}%</span> <span class="text-muted" style="font-size:0.7rem">(${count}/${f.length})</span></td>`;
             }
             body.innerHTML += row + `</tr>`;
-            let summaryPct = ((f.filter(d => d.equips && (d.equips[1] || d.equips[2] || d.equips[3])).length / f.length) * 100).toFixed(0);
-            summaryBody.innerHTML += `<tr><td class="text-start small fw-bold">${dn}</td><td class="table-info"><span class="${getPercentColor(summaryPct)}">${summaryPct}%</span></td></tr>`;
+            let summaryMatch = f.filter(d => d.equips && (d.equips[1] || d.equips[2] || d.equips[3])).length;
+            let summaryPct = ((summaryMatch / f.length) * 100).toFixed(0);
+            summaryBody.innerHTML += `<tr><td class="text-start small fw-bold">${dn}</td><td class="table-info"><span class="${getPercentColor(summaryPct)}">${summaryPct}%</span> <br><small class="text-muted">(${summaryMatch}/${f.length})</small></td></tr>`;
         });
     }
 

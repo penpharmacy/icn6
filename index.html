@@ -76,8 +76,8 @@
     </div>
 
     <div class="row g-2 mb-3">
-        <div class="col-md-6"><div class="card p-2"><h6 class="chart-label text-success">Matrix: Compliance Rate (%) แยกตามแผนกและ Moment</h6><div class="chart-container" style="height:250px;"><canvas id="matrixDeptChart"></canvas></div></div></div>
-        <div class="col-md-6"><div class="card p-2"><h6 class="chart-label text-info">Matrix: Compliance Rate (%) แยกตามวิชาชีพและ Moment</h6><div class="chart-container" style="height:250px;"><canvas id="matrixRoleChart"></canvas></div></div></div>
+        <div class="col-md-6"><div class="card p-2"><h6 class="chart-label text-success">Matrix: สัดส่วนวิธีปฏิบัติรายแผนกแยกตาม Moment (สถิติ 100%)</h6><div class="chart-container" style="height:300px;"><canvas id="matrixDeptChart"></canvas></div></div></div>
+        <div class="col-md-6"><div class="card p-2"><h6 class="chart-label text-info">Matrix: สัดส่วนวิธีปฏิบัติรายวิชาชีพแยกตาม Moment (สถิติ 100%)</h6><div class="chart-container" style="height:300px;"><canvas id="matrixRoleChart"></canvas></div></div></div>
     </div>
 
     <div class="text-end mb-4 no-print">
@@ -244,9 +244,9 @@
         renderMatrixTable(data); 
         renderMatrixRoleTable(data);
         
-        // สร้างกราฟ Matrix ใหม่
-        drawMatrixGroupChart(data, 'dept', 'matrixDeptChart', 'แผนก');
-        drawMatrixGroupChart(data, 'role', 'matrixRoleChart', 'วิชาชีพ');
+        // กราฟ Matrix เชิงสถิติแบบใหม่
+        drawStatisticalMatrixChart(data, 'dept', 'matrixDeptChart');
+        drawStatisticalMatrixChart(data, 'role', 'matrixRoleChart');
     }
 
     function drawPie(hw, hr, none, glove) { if(charts.pie) charts.pie.destroy(); charts.pie = new Chart(document.getElementById('pieChart'), { type: 'doughnut', data: { labels: ['HW', 'HR', 'ไม่ล้างมือ', 'สวมถุงมือ'], datasets: [{ data: [hw, hr, none, glove], backgroundColor: ['#2ecc71', '#3498db', '#e74c3c', '#f1c40f'] }] }, options: { maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 9 } } } } } }); }
@@ -255,34 +255,47 @@
     function drawTrend(data) { if(charts.trend) charts.trend.destroy(); const monthlyData = {}; database.forEach(d => { if(!d.obsDate) return; const month = d.obsDate.substring(0, 7); if(!monthlyData[month]) monthlyData[month] = { pass: 0, total: 0 }; d.m.forEach(v => { monthlyData[month].total++; if(v === 'HW' || v === 'HR') monthlyData[month].pass++; }); }); const labels = Object.keys(monthlyData).sort(); charts.trend = new Chart(document.getElementById('trendChart'), { type: 'line', data: { labels: labels, datasets: [{ label: 'Trend (%)', data: labels.map(l => ((monthlyData[l].pass / monthlyData[l].total) * 100).toFixed(1)), borderColor: '#1d976c', fill: true, backgroundColor: 'rgba(29, 151, 108, 0.1)', tension: 0.3 }] }, options: { maintainAspectRatio: false, scales: { y: { beginAtZero: true, max: 100 } } } }); }
     function drawEquipDeptChart(data) { if(charts.equip) charts.equip.destroy(); const depts = [...new Set(data.map(d => d.dept))]; const scores = depts.map(dn => { let f = data.filter(d => d.dept === dn); let totalPos = f.length * 7; let actual = f.reduce((acc, curr) => acc + curr.equips.reduce((a, b) => a + b, 0), 0); return ((actual / totalPos) * 100).toFixed(1); }); charts.equip = new Chart(document.getElementById('equipDeptChart'), { type: 'bar', data: { labels: depts, datasets: [{ label: 'อุปกรณ์ (%)', data: scores, backgroundColor: '#f39c12' }] }, options: { maintainAspectRatio: false, scales: { y: { beginAtZero: true, max: 100 } } } }); }
 
-    // ฟังก์ชันสร้างกราฟ Matrix Compliance 5 Moment
-    function drawMatrixGroupChart(data, field, canvasId, labelPrefix) {
+    // --- ฟังก์ชันใหม่: กราฟ Matrix สถิติแบบ Stacked Bar 100% ---
+    function drawStatisticalMatrixChart(data, field, canvasId) {
         if(charts[canvasId]) charts[canvasId].destroy();
         const groups = [...new Set(data.map(d => d[field]))].sort();
         const moments = ["M1", "M2", "M3", "M4", "M5"];
-        const colors = ['#1abc9c', '#3498db', '#9b59b6', '#f1c40f', '#e67e22'];
+        const behaviorMeta = [
+            { key: 'HW', label: 'HW', color: '#2ecc71' },
+            { key: 'HR', label: 'HR', color: '#3498db' },
+            { key: 'Glove', label: 'สวมถุงมือ', color: '#f1c40f' },
+            { key: 'None', label: 'ไม่ล้าง', color: '#e74c3c' }
+        ];
+
+        // สร้าง Labels (Moments เป็นกลุ่มหลัก)
+        const labels = moments;
         
-        const datasets = moments.map((m, i) => {
+        // คำนวณค่าเฉลี่ยของทุกกลุ่ม (แผนก/วิชาชีพ) ในแต่ละ Moment
+        const datasets = behaviorMeta.map(beh => {
             return {
-                label: m,
-                data: groups.map(g => {
-                    let f = data.filter(d => d[field] === g);
-                    let pass = f.filter(d => d.m && (d.m[i] === 'HW' || d.m[i] === 'HR')).length;
-                    return ((pass / f.length) * 100).toFixed(1);
-                }),
-                backgroundColor: colors[i]
+                label: beh.label,
+                backgroundColor: beh.color,
+                data: moments.map((m, mIdx) => {
+                    let totalCount = data.length;
+                    let matchCount = data.filter(d => d.m && d.m[mIdx] === beh.key).length;
+                    return ((matchCount / totalCount) * 100).toFixed(1);
+                })
             };
         });
 
         charts[canvasId] = new Chart(document.getElementById(canvasId), {
             type: 'bar',
-            data: { labels: groups, datasets: datasets },
+            data: { labels: labels, datasets: datasets },
             options: {
+                responsive: true,
                 maintainAspectRatio: false,
-                plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: { size: 9 } } } },
-                scales: { 
-                    y: { beginAtZero: true, max: 100, title: { display: true, text: '% Compliance', font: { size: 10 } } },
-                    x: { ticks: { font: { size: 9 } } }
+                scales: {
+                    x: { stacked: true },
+                    y: { stacked: true, beginAtZero: true, max: 100, title: { display: true, text: 'สัดส่วนภาพรวม (%)' } }
+                },
+                plugins: {
+                    legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 10 } } },
+                    tooltip: { callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.raw}%` } }
                 }
             }
         });
@@ -292,16 +305,9 @@
         const body = document.getElementById('matrixTableBody');
         body.innerHTML = '';
         const depts = [...new Set(data.map(d => d.dept))].sort();
-        const behaviors = [
-            { key: 'HW', label: 'HW', colorClass: 'text-primary' },
-            { key: 'HR', label: 'HR', colorClass: 'text-info' },
-            { key: 'None', label: 'ไม่ล้าง', colorClass: 'text-danger' },
-            { key: 'Glove', label: 'สวมถุงมือ', colorClass: 'text-warning' }
-        ];
-
+        const behaviors = [{ key: 'HW', label: 'HW', colorClass: 'text-primary' }, { key: 'HR', label: 'HR', colorClass: 'text-info' }, { key: 'None', label: 'ไม่ล้าง', colorClass: 'text-danger' }, { key: 'Glove', label: 'สวมถุงมือ', colorClass: 'text-warning' }];
         depts.forEach(dn => {
-            const f = data.filter(d => d.dept === dn);
-            const total = f.length;
+            const f = data.filter(d => d.dept === dn); const total = f.length;
             behaviors.forEach((beh, idx) => {
                 let row = `<tr>`;
                 if (idx === 0) row += `<td rowspan="4" class="bg-dept align-middle small">${dn}</td>`;
@@ -321,16 +327,9 @@
         const body = document.getElementById('matrixRoleTableBody');
         body.innerHTML = '';
         const roles = [...new Set(data.map(d => d.role))].sort();
-        const behaviors = [
-            { key: 'HW', label: 'HW', colorClass: 'text-primary' },
-            { key: 'HR', label: 'HR', colorClass: 'text-info' },
-            { key: 'None', label: 'ไม่ล้าง', colorClass: 'text-danger' },
-            { key: 'Glove', label: 'สวมถุงมือ', colorClass: 'text-warning' }
-        ];
-
+        const behaviors = [{ key: 'HW', label: 'HW', colorClass: 'text-primary' }, { key: 'HR', label: 'HR', colorClass: 'text-info' }, { key: 'None', label: 'ไม่ล้าง', colorClass: 'text-danger' }, { key: 'Glove', label: 'สวมถุงมือ', colorClass: 'text-warning' }];
         roles.forEach(rn => {
-            const f = data.filter(d => d.role === rn);
-            const total = f.length;
+            const f = data.filter(d => d.role === rn); const total = f.length;
             behaviors.forEach((beh, idx) => {
                 let row = `<tr>`;
                 if (idx === 0) row += `<td rowspan="4" class="bg-role align-middle small">${rn}</td>`;
